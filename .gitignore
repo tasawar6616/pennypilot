@@ -41,3 +41,7 @@ app-example
 # generated native folders
 /ios
 /android
+
+# Backup files
+*.bak
+README_OLD.md
