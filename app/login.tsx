@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
-import { View, StyleSheet, TextInput, Pressable, Alert, Platform, KeyboardAvoidingView, ScrollView } from 'react-native';
-import { useRouter } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
 import { ThemedText } from '@/components/themed-text';
 import { useAuth } from '@/contexts/AuthContext';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
+import React, { useState } from 'react';
+import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');

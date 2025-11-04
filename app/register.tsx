@@ -130,11 +130,11 @@ export default function RegisterScreen() {
               disabled={loading}
             >
               <LinearGradient
-                colors={loading ? ['#9CA3AF', '#6B7280'] : ['#10B981', '#059669']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.buttonGradient}
-              >
+                           colors={loading ? ['#9CA3AF', '#6B7280'] : ['#667eea', '#764ba2']}
+                           start={{ x: 0, y: 0 }}
+                           end={{ x: 1, y: 0 }}
+                           style={styles.buttonGradient}
+                         >
                 <ThemedText style={styles.buttonText}>
                   {loading ? 'Creating Account...' : 'Create Account'}
                 </ThemedText>
