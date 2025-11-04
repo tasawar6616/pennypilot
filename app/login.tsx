@@ -24,7 +24,10 @@ export default function LoginScreen() {
       // Navigation handled by auth state change
     } catch (error: any) {
       let message = 'Login failed';
-      if (error.code === 'auth/user-not-found') {
+
+      if (error.code === 'auth/invalid-credential') {
+        message = 'Invalid email or password';
+      } else if (error.code === 'auth/user-not-found') {
         message = 'No account found with this email';
       } else if (error.code === 'auth/wrong-password') {
         message = 'Incorrect password';
@@ -114,7 +117,39 @@ export default function LoginScreen() {
               </LinearGradient>
             </Pressable>
 
+            {/* Divider with "OR" */}
+            <View style={styles.dividerContainer}>
+              <View style={styles.dividerLine} />
+              <ThemedText style={styles.dividerText}>OR</ThemedText>
+              <View style={styles.dividerLine} />
+            </View>
+
+            {/* Phone OTP Login Button */}
+            <Pressable
+              style={styles.phoneButton}
+              onPress={() => router.push('/phone-register')}
+            >
+              <View style={styles.phoneButtonContent}>
+                <ThemedText style={styles.phoneIcon}>📱</ThemedText>
+                <View style={styles.phoneTextContainer}>
+                  <ThemedText style={styles.phoneButtonTitle}>Sign in with Phone</ThemedText>
+                  <ThemedText style={styles.phoneButtonSubtitle}>Login using OTP verification</ThemedText>
+                </View>
+              </View>
+            </Pressable>
+
             {/* Register Link */}
+
+
+            <View style={styles.registerSection}>
+              <ThemedText style={styles.registerText}>Forgot your password? </ThemedText>
+              <Pressable onPress={() => router.push('/reset-password')}>
+                <ThemedText style={styles.registerLink}>Reset</ThemedText>
+              </Pressable>
+            </View>
+
+
+
             <View style={styles.registerSection}>
               <ThemedText style={styles.registerText}>Don't have an account? </ThemedText>
               <Pressable onPress={() => router.push('/register')}>
@@ -126,7 +161,7 @@ export default function LoginScreen() {
           {/* Alternative Auth Options */}
           <View style={styles.alternativeSection}>
             <ThemedText style={styles.alternativeText}>
-              Phone OTP and Google Sign-In coming soon
+              Google Sign-In coming soon
             </ThemedText>
           </View>
         </ScrollView>
@@ -224,6 +259,55 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+
+  // Divider
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 24,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#E5E7EB',
+  },
+  dividerText: {
+    marginHorizontal: 16,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#9CA3AF',
+  },
+
+  // Phone Button
+  phoneButton: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
+    marginBottom: 8,
+  },
+  phoneButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+  },
+  phoneIcon: {
+    fontSize: 28,
+    marginRight: 12,
+  },
+  phoneTextContainer: {
+    flex: 1,
+  },
+  phoneButtonTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 2,
+  },
+  phoneButtonSubtitle: {
+    fontSize: 13,
+    color: '#6B7280',
   },
 
   // Register Section

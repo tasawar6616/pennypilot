@@ -3,10 +3,10 @@
  * This ensures Firebase is initialized once before any services use it.
  */
 
-import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
-import { getAuth, Auth } from 'firebase/auth';
-import { getFirestore, Firestore } from 'firebase/firestore';
 import { FIREBASE_CONFIG } from '@/env/firebase';
+import { FirebaseApp, getApp, getApps, initializeApp } from 'firebase/app';
+import { Auth, getAuth } from 'firebase/auth';
+import { Firestore, getFirestore } from 'firebase/firestore';
 
 let firebaseApp: FirebaseApp | null = null;
 let auth: Auth | null = null;

@@ -11,6 +11,7 @@ export default function RegisterScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const { signUp } = useAuth();
+
   const router = useRouter();
 
   const handleRegister = async () => {
@@ -141,6 +142,27 @@ export default function RegisterScreen() {
               </LinearGradient>
             </Pressable>
 
+            {/* Divider with "OR" */}
+            <View style={styles.dividerContainer}>
+              <View style={styles.dividerLine} />
+              <ThemedText style={styles.dividerText}>OR</ThemedText>
+              <View style={styles.dividerLine} />
+            </View>
+
+            {/* Phone OTP Registration Button */}
+            <Pressable
+              style={styles.phoneButton}
+              onPress={() => router.replace('/phone-register')}
+            >
+              <View style={styles.phoneButtonContent}>
+                <ThemedText style={styles.phoneIcon}>📱</ThemedText>
+                <View style={styles.phoneTextContainer}>
+                  <ThemedText style={styles.phoneButtonTitle}>Continue with Phone</ThemedText>
+                  <ThemedText style={styles.phoneButtonSubtitle}>Register using OTP verification</ThemedText>
+                </View>
+              </View>
+            </Pressable>
+
             {/* Login Link */}
             <View style={styles.loginSection}>
               <ThemedText style={styles.loginText}>Already have an account? </ThemedText>
@@ -252,6 +274,55 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+
+  // Divider
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 24,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#E5E7EB',
+  },
+  dividerText: {
+    marginHorizontal: 16,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#9CA3AF',
+  },
+
+  // Phone Button
+  phoneButton: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
+    marginBottom: 8,
+  },
+  phoneButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+  },
+  phoneIcon: {
+    fontSize: 28,
+    marginRight: 12,
+  },
+  phoneTextContainer: {
+    flex: 1,
+  },
+  phoneButtonTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 2,
+  },
+  phoneButtonSubtitle: {
+    fontSize: 13,
+    color: '#6B7280',
   },
 
   // Login Section
