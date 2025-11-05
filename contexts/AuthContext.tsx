@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Localization from 'expo-localization'; // optional
 import { createUserWithEmailAndPassword, onAuthStateChanged, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, User } from 'firebase/auth';
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { queryClient } from '@/lib/query-client';
 
 type AuthContextType = {
   user: User | null;
@@ -48,6 +49,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     const auth = getFirebaseAuth();
     await signOut(auth);
+    // Clear all cached data on logout
+    queryClient.clear();
+    await AsyncStorage.clear();
   };
 
 

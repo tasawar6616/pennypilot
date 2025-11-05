@@ -2,43 +2,39 @@ import { useIsFocused } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Link, Stack } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Dimensions, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Dimensions, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { getRecentTransactionsFirestore, getSettings, SettingsData, TransactionRow, getCategories, Category, initializeDefaultCategories, initializeDefaultPaymentMethods } from '@/lib/firebase';
+import { initializeDefaultCategories, initializeDefaultPaymentMethods } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
+import { useCachedTransactions, useCachedCategories, useCachedSettings, useInvalidateCache } from '@/hooks/use-cached-data';
+import { queryClient } from '@/lib/query-client';
 
 const { width } = Dimensions.get('window');
 
 export default function HomeScreen() {
-  const [recent, setRecent] = useState<TransactionRow[]>([]);
-  const [settings, setSettings] = useState<SettingsData | null>(null);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
   const isFocused = useIsFocused();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
 
+  // Use cached data with React Query
+  const { data: recent = [], isLoading: transactionsLoading } = useCachedTransactions(5);
+  const { data: categories = [], isLoading: categoriesLoading } = useCachedCategories();
+  const { data: settings = null, isLoading: settingsLoading } = useCachedSettings();
+
+  // Initialize defaults for new users
   useEffect(() => {
     (async () => {
-      try {
-        if (isFocused && user) {
-          // Initialize defaults for new users
+      if (user) {
+        try {
           await initializeDefaultCategories(user.uid);
           await initializeDefaultPaymentMethods(user.uid);
-
-          const items = await getRecentTransactionsFirestore(user.uid, 5);
-          setRecent(items);
-
-          const userSettings = await getSettings(user.uid);
-          setSettings(userSettings);
-
-          const cats = await getCategories(user.uid);
-          setCategories(cats);
+        } catch (err) {
+          console.warn('Firestore init failed', err);
         }
-      } catch (err) {
-        console.warn('Firestore init failed', err);
       }
     })();
-  }, [isFocused, user]);
+  }, [user]);
 
   const getCategoryById = (id: string | null | undefined) => {
     if (!id) return null;
@@ -72,6 +68,41 @@ export default function HomeScreen() {
   // Use actual categories from Firestore
   const quickCategories = categories.slice(0, 4);
 
+  const handleRefreshData = async () => {
+    try {
+      // Clear all cache
+      queryClient.clear();
+      Alert.alert('Success', 'Cache cleared! Data will refresh automatically.');
+      setShowProfileMenu(false);
+    } catch (error) {
+      console.error('Refresh failed:', error);
+      Alert.alert('Error', 'Failed to refresh data. Please try again.');
+    }
+  };
+
+  const handleLogout = async () => {
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await logout();
+              setShowProfileMenu(false);
+            } catch (error) {
+              console.error('Logout failed:', error);
+              Alert.alert('Error', 'Failed to logout. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
@@ -95,7 +126,7 @@ export default function HomeScreen() {
             <ThemedText style={styles.greeting}>Hello there!</ThemedText>
             <ThemedText style={styles.appTitle}>PennyPilot</ThemedText>
           </View>
-          <Pressable style={styles.avatarButton}>
+          <Pressable style={styles.avatarButton} onPress={() => setShowProfileMenu(true)}>
             <View style={styles.avatar}>
               <ThemedText style={styles.avatarText}>P</ThemedText>
             </View>
@@ -241,6 +272,47 @@ export default function HomeScreen() {
 
         <View style={{ height: 60 }} />
       </ScrollView>
+
+      {/* Profile Menu Modal */}
+      <Modal
+        visible={showProfileMenu}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowProfileMenu(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowProfileMenu(false)}>
+          <View style={styles.profileMenuContainer}>
+            <View style={styles.profileMenuHeader}>
+              <View style={styles.profileMenuAvatar}>
+                <ThemedText style={styles.profileMenuAvatarText}>P</ThemedText>
+              </View>
+              <View style={styles.profileMenuInfo}>
+                <ThemedText style={styles.profileMenuName}>PennyPilot User</ThemedText>
+                <ThemedText style={styles.profileMenuEmail}>{user?.email}</ThemedText>
+              </View>
+            </View>
+
+            <View style={styles.profileMenuDivider} />
+
+            <Pressable style={styles.menuItemRefresh} onPress={handleRefreshData}>
+              <ThemedText style={styles.menuItemIcon}>🔄</ThemedText>
+              <ThemedText style={styles.menuItemRefreshText}>Refresh Data</ThemedText>
+            </Pressable>
+
+            <Pressable style={styles.menuItem} onPress={handleLogout}>
+              <ThemedText style={styles.menuItemIcon}>🚪</ThemedText>
+              <ThemedText style={styles.menuItemText}>Logout</ThemedText>
+            </Pressable>
+
+            <Pressable
+              style={styles.menuCancelButton}
+              onPress={() => setShowProfileMenu(false)}
+            >
+              <ThemedText style={styles.menuCancelText}>Cancel</ThemedText>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -513,5 +585,99 @@ const styles = StyleSheet.create({
   emptySubtext: {
     fontSize: 14,
     color: '#9CA3AF',
+  },
+
+  // Profile Menu Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+  },
+  profileMenuContainer: {
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+  },
+  profileMenuHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  profileMenuAvatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#667eea',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  profileMenuAvatarText: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  profileMenuInfo: {
+    flex: 1,
+  },
+  profileMenuName: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  profileMenuEmail: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  profileMenuDivider: {
+    height: 1,
+    backgroundColor: '#E5E7EB',
+    marginBottom: 16,
+  },
+  menuItemRefresh: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#EFF6FF',
+    borderRadius: 16,
+    marginBottom: 12,
+  },
+  menuItemRefreshText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2563EB',
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#FEF2F2',
+    borderRadius: 16,
+    marginBottom: 12,
+  },
+  menuItemIcon: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  menuItemText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#DC2626',
+  },
+  menuCancelButton: {
+    padding: 16,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 16,
+    alignItems: 'center',
+  },
+  menuCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#6B7280',
   },
 });

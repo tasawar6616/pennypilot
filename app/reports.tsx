@@ -1,63 +1,39 @@
-import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, ScrollView, Pressable, Dimensions, Platform } from 'react-native';
-import { Stack } from 'expo-router';
+import * as FileSystem from 'expo-file-system/legacy';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Stack } from 'expo-router';
+import * as Sharing from 'expo-sharing';
+import React, { useEffect, useState } from 'react';
+import { Alert, Dimensions, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { PieChart } from 'react-native-chart-kit';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 import { ThemedText } from '@/components/themed-text';
-import {
-  getRecentTransactionsFirestore,
-  getCategories,
-  getSettings,
-  getCategoryBudgets,
-  TransactionRow,
-  Category,
-  SettingsData,
-  CategoryBudget,
-} from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
+import { useCachedTransactions, useCachedCategories, useCachedSettings, useCachedCategoryBudgets } from '@/hooks/use-cached-data';
 
 const { width } = Dimensions.get('window');
 
 type TimeRange = 'month' | 'week' | 'day';
 
 export default function ReportsScreen() {
-  const [transactions, setTransactions] = useState<TransactionRow[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [settings, setSettings] = useState<SettingsData | null>(null);
-  const [categoryBudgets, setCategoryBudgets] = useState<CategoryBudget[]>([]);
   const [timeRange, setTimeRange] = useState<TimeRange>('month');
-  const [loading, setLoading] = useState(true);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [startDate, setStartDate] = useState(new Date());
+  const [endDate, setEndDate] = useState(new Date());
+  const [showStartPicker, setShowStartPicker] = useState(false);
+  const [showEndPicker, setShowEndPicker] = useState(false);
   const { user } = useAuth();
 
-  useEffect(() => {
-    if (user) {
-      loadData();
-    }
-  }, [user]);
+  // Get current month for budgets
+  const currentMonth = new Date().toISOString().slice(0, 7);
 
-  const loadData = async () => {
-    if (!user) return;
+  // Use cached data with React Query
+  const { data: transactions = [], isLoading: transactionsLoading } = useCachedTransactions(100);
+  const { data: categories = [], isLoading: categoriesLoading } = useCachedCategories();
+  const { data: settings = null, isLoading: settingsLoading } = useCachedSettings();
+  const { data: categoryBudgets = [], isLoading: budgetsLoading } = useCachedCategoryBudgets(currentMonth);
 
-    try {
-      const txns = await getRecentTransactionsFirestore(user.uid, 100); // Get more for reports
-      const cats = await getCategories(user.uid);
-      const userSettings = await getSettings(user.uid);
-
-      // Load category budgets for current month
-      const currentMonth = new Date().toISOString().slice(0, 7);
-      const budgets = await getCategoryBudgets(user.uid, currentMonth);
-
-      setTransactions(txns);
-      setCategories(cats);
-      setSettings(userSettings);
-      setCategoryBudgets(budgets);
-    } catch (err) {
-      console.error('Error loading reports data', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const loading = transactionsLoading || categoriesLoading || settingsLoading || budgetsLoading;
 
   // Filter transactions by time range
   const getFilteredTransactions = () => {
@@ -88,6 +64,85 @@ export default function ReportsScreen() {
   };
 
   const filteredTransactions = getFilteredTransactions();
+
+  // CSV utility functions
+  const esc = (str: string | number) => {
+    const s = String(str);
+    return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
+  const toCsv = (txns: TransactionRow[]) => {
+    const header = 'ID,Date,Description,Amount,Category\n';
+    const rows = txns.map(t => {
+      const cat = categories.find(c => c.id === t.categoryId);
+      return [
+        esc(t.id),
+        esc(t.timestamp || ''),
+        esc(t.description || ''),
+        esc(t.amount),
+        esc(cat?.name || 'Uncategorized')
+      ].join(',');
+    }).join('\n');
+    return header + rows;
+  };
+
+  // Export filtered transactions (current time range)
+  const onExportFiltered = async () => {
+    if (filteredTransactions.length === 0) {
+      Alert.alert('No Data', 'There are no transactions in the selected time period to export.');
+      return;
+    }
+
+    try {
+      const csv = toCsv(filteredTransactions);
+      const fileName = `${FileSystem.documentDirectory}PennyPilot_${timeRange}_${Date.now()}.csv`;
+      await FileSystem.writeAsStringAsync(fileName, csv);
+      await Sharing.shareAsync(fileName);
+      Alert.alert('Success', `Exported ${filteredTransactions.length} transactions!`);
+    } catch (error) {
+      console.error('Export failed:', error);
+      Alert.alert('Export Failed', 'Could not export the file. Please try again.');
+    }
+  };
+
+  // Export custom date range
+  const onExportCustomRange = async () => {
+    if (!startDate || !endDate) {
+      Alert.alert('Invalid Dates', 'Please select both start and end dates.');
+      return;
+    }
+
+    if (startDate > endDate) {
+      Alert.alert('Invalid Range', 'Start date must be before end date.');
+      return;
+    }
+
+    // Filter transactions by custom date range
+    const customFiltered = transactions.filter((t) => {
+      if (!t.timestamp) return false;
+      const txDate = new Date(t.timestamp);
+      return txDate >= startDate && txDate <= endDate;
+    });
+
+    if (customFiltered.length === 0) {
+      Alert.alert('No Data', 'No transactions found in the selected date range.');
+      return;
+    }
+
+    try {
+      const csv = toCsv(customFiltered);
+      const startStr = startDate.toISOString().split('T')[0];
+      const endStr = endDate.toISOString().split('T')[0];
+      const fileName = `${FileSystem.documentDirectory}PennyPilot_Custom_${startStr}_to_${endStr}.csv`;
+      await FileSystem.writeAsStringAsync(fileName, csv, { encoding: FileSystem.EncodingType.UTF8 });
+      await Sharing.shareAsync(fileName);
+      setShowDatePicker(false);
+      Alert.alert('Success', `Exported ${customFiltered.length} transactions!`);
+    } catch (error) {
+      console.error('Export failed:', error);
+      Alert.alert('Export Failed', 'Could not export the file. Please try again.');
+    }
+  };
 
   // Calculate category spending
   const getCategoryData = () => {
@@ -184,6 +239,16 @@ export default function ReportsScreen() {
               </ThemedText>
             </Pressable>
           ))}
+        </View>
+
+        {/* Export Buttons */}
+        <View style={styles.exportSection}>
+          <Pressable style={styles.exportButton} onPress={onExportFiltered}>
+            <ThemedText style={styles.exportButtonText}>📊 Export This Period</ThemedText>
+          </Pressable>
+          <Pressable style={styles.exportButtonSecondary} onPress={() => setShowDatePicker(true)}>
+            <ThemedText style={styles.exportButtonSecondaryText}>📅 Custom Range</ThemedText>
+          </Pressable>
         </View>
 
         {/* Summary Card */}
@@ -336,6 +401,92 @@ export default function ReportsScreen() {
 
         <View style={{ height: 60 }} />
       </ScrollView>
+
+      {/* Custom Date Range Modal */}
+      <Modal
+        visible={showDatePicker}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowDatePicker(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <ThemedText style={styles.modalTitle}>Custom Date Range</ThemedText>
+            <ThemedText style={styles.modalSubtitle}>
+              Export transactions from a specific date range
+            </ThemedText>
+
+            <View style={styles.dateInputContainer}>
+              <ThemedText style={styles.inputLabel}>Start Date</ThemedText>
+              <Pressable
+                style={styles.datePickerButton}
+                onPress={() => setShowStartPicker(true)}
+              >
+                <ThemedText style={styles.datePickerText}>
+                  {startDate.toISOString().split('T')[0]}
+                </ThemedText>
+              </Pressable>
+              {showStartPicker && (
+                <DateTimePicker
+                  value={startDate}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  onChange={(event, selectedDate) => {
+                    setShowStartPicker(Platform.OS === 'ios');
+                    if (selectedDate) setStartDate(selectedDate);
+                  }}
+                />
+              )}
+            </View>
+
+            <View style={styles.dateInputContainer}>
+              <ThemedText style={styles.inputLabel}>End Date</ThemedText>
+              <Pressable
+                style={styles.datePickerButton}
+                onPress={() => setShowEndPicker(true)}
+              >
+                <ThemedText style={styles.datePickerText}>
+                  {endDate.toISOString().split('T')[0]}
+                </ThemedText>
+              </Pressable>
+              {showEndPicker && (
+                <DateTimePicker
+                  value={endDate}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  onChange={(event, selectedDate) => {
+                    setShowEndPicker(Platform.OS === 'ios');
+                    if (selectedDate) setEndDate(selectedDate);
+                  }}
+                />
+              )}
+            </View>
+
+            <View style={styles.modalButtons}>
+              <Pressable
+                style={styles.modalButtonCancel}
+                onPress={() => {
+                  setShowDatePicker(false);
+                  setShowStartPicker(false);
+                  setShowEndPicker(false);
+                }}
+              >
+                <ThemedText style={styles.modalButtonCancelText}>Cancel</ThemedText>
+              </Pressable>
+              <Pressable style={styles.modalButtonExport} onPress={onExportCustomRange}>
+                <LinearGradient
+                  colors={['#667eea', '#764ba2']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.modalButtonGradient}
+                >
+                  <ThemedText style={styles.modalButtonExportText}>📊 Export</ThemedText>
+                </LinearGradient>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -382,7 +533,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     borderRadius: 16,
     padding: 4,
-    marginBottom: 20,
+    marginBottom: 16,
   },
   timeRangeButton: {
     flex: 1,
@@ -400,6 +551,41 @@ const styles = StyleSheet.create({
   },
   timeRangeTextActive: {
     color: '#667eea',
+  },
+
+  // Export Section
+  exportSection: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 20,
+  },
+  exportButton: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    borderRadius: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  exportButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#667eea',
+  },
+  exportButtonSecondary: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
+  },
+  exportButtonSecondaryText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 
   // Summary Card
@@ -601,5 +787,93 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#6B7280',
     textAlign: 'center',
+  },
+
+  // Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 24,
+  },
+  dateInputContainer: {
+    marginBottom: 16,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 8,
+  },
+  dateInput: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 12,
+    padding: 14,
+    fontSize: 15,
+    color: '#111827',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  datePickerButton: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  datePickerText: {
+    fontSize: 15,
+    color: '#111827',
+    fontWeight: '600',
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
+  modalButtonCancel: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+  },
+  modalButtonCancelText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#6B7280',
+  },
+  modalButtonExport: {
+    flex: 1,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  modalButtonGradient: {
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  modalButtonExportText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 });

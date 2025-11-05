@@ -1,46 +1,96 @@
-import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, ScrollView, Pressable, Platform, Alert } from 'react-native';
-import { Stack, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Stack, useRouter } from 'expo-router';
+import React from 'react';
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+
+
+// ADD these imports at the top with your others
+// ADD these imports at the top with your others
 
 import { ThemedText } from '@/components/themed-text';
-import {
-  getRecentTransactionsFirestore,
-  getCategories,
-  deleteTransaction,
-  TransactionRow,
-  Category,
-} from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
+import { useCachedTransactions, useCachedCategories, useDeleteTransaction } from '@/hooks/use-cached-data';
 
 export default function TransactionsScreen() {
-  const [transactions, setTransactions] = useState<TransactionRow[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(true);
   const router = useRouter();
   const { user } = useAuth();
 
-  useEffect(() => {
-    if (user) {
-      loadData();
+  // Use cached data with React Query
+  const { data: transactions = [], isLoading: transactionsLoading } = useCachedTransactions(100);
+  const { data: categories = [], isLoading: categoriesLoading } = useCachedCategories();
+  const deleteTransactionMutation = useDeleteTransaction();
+
+  const loading = transactionsLoading || categoriesLoading;
+
+
+
+  type CsvRow = { id: string; date: string; description: string; amount: number; category: string };
+
+const esc = (v: unknown) => {
+  const s = String(v ?? '');
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+const toCsv = (rows: CsvRow[]) =>
+  '\uFEFF' + ['id,date,description,amount,category', ...rows.map(r =>
+    [r.id, r.date, r.description, r.amount, r.category].map(esc).join(',')
+  )].join('\n');
+
+
+const onExportCsv = async () => {
+  try {
+    if (!transactions.length) {
+      Alert.alert('Nothing to export', 'No transactions found.');
+      return;
     }
-  }, [user]);
 
-  const loadData = async () => {
-    if (!user) return;
+    // Map your TransactionRow -> flat CSV rows safely (handles different date shapes)
+    const rows: CsvRow[] = transactions.map((t) => {
+      // Try to figure out the date field
+      const anyT: any = t as any;
+      const dateSrc = anyT.date ?? anyT.createdAt ?? anyT.timestamp;
+      let ms: number | undefined;
+      if (typeof dateSrc === 'number') ms = dateSrc;
+      else if (typeof dateSrc === 'string') { const d = Date.parse(dateSrc); if (!isNaN(d)) ms = d; }
+      else if (dateSrc?.seconds) ms = dateSrc.seconds * 1000; // Firestore Timestamp
 
-    try {
-      const txns = await getRecentTransactionsFirestore(user.uid, 100);
-      const cats = await getCategories(user.uid);
+      const dateISO = ms ? new Date(ms).toISOString() : '';
+      const cat = getCategoryById(anyT.categoryId ?? anyT.category)?.name ?? '';
+      const desc = anyT.note ?? anyT.description ?? '';
 
-      setTransactions(txns);
-      setCategories(cats);
-    } catch (err) {
-      console.error('Error loading transactions', err);
-    } finally {
-      setLoading(false);
+      return {
+        id: String(t.id),
+        date: dateISO,
+        description: String(desc),
+        amount: Number(t.amount ?? 0),
+        category: cat,
+      };
+    });
+
+    const csv = toCsv(rows);
+    const fileName = `transactions-${new Date().toISOString().slice(0,10)}.csv`;
+    const fileUri = FileSystem.cacheDirectory + fileName;
+
+    await FileSystem.writeAsStringAsync(fileUri, csv);
+
+    // Share/save
+    const available = await Sharing.isAvailableAsync();
+    if (available) {
+      await Sharing.shareAsync(fileUri, {
+        mimeType: 'text/csv',
+        dialogTitle: 'Export transactions CSV',
+        UTI: 'public.comma-separated-values-text',
+      });
+    } else {
+      Alert.alert('CSV saved', `Saved to: ${fileUri}`);
     }
-  };
+  } catch (e: any) {
+    Alert.alert('Export failed', e?.message ?? String(e));
+  }
+};
+
 
   const getCategoryById = (id: string | null | undefined) => {
     if (!id) return null;
@@ -60,8 +110,8 @@ export default function TransactionsScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await deleteTransaction(user.uid, id);
-              setTransactions(transactions.filter((t) => t.id !== id));
+              await deleteTransactionMutation.mutateAsync(id);
+              Alert.alert('Success', 'Transaction deleted successfully');
             } catch (err) {
               console.error('Error deleting transaction', err);
               Alert.alert('Error', 'Failed to delete transaction');
@@ -105,13 +155,14 @@ export default function TransactionsScreen() {
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
-
       <LinearGradient
         colors={['#667eea', '#764ba2', '#f093fb']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
+
+  
 
       <ScrollView
         style={styles.scrollView}
@@ -131,6 +182,24 @@ export default function TransactionsScreen() {
           </Pressable>
         </View>
 
+        <View style={styles.header}>
+          <Pressable
+            onPress={onExportCsv}
+            style={({ pressed }) => ({
+              opacity: pressed ? 0.7 : 1,
+              backgroundColor: '#2563eb',
+              paddingVertical: 8,
+              paddingHorizontal: 12,
+              borderRadius: 8,
+            })}
+          >
+            <ThemedText style={{ color: '#fff', fontWeight: '600' }}>Export CSV</ThemedText>
+          </Pressable>
+
+
+        </View>
+
+               
         {/* Transactions List */}
         {transactions.length === 0 ? (
           <View style={styles.emptyState}>
